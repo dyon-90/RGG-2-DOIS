@@ -1,0 +1,59 @@
+name: Build e Deploy para Hostinger
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 1. Checkout do Código
+        uses: actions/checkout@v4
+
+      - name: 2. Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 3. Instalar Dependências
+        run: npm ci || npm install
+
+      - name: 4. Validação de Tipos (TypeScript Lint)
+        run: npm run lint
+
+      - name: 5. Compilação do Projeto (Vite Build)
+        run: npm run build
+
+      - name: 6. Upload dos Arquivos de Produção como Artefato
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-files
+          path: dist/
+          retention-days: 7
+
+      # ---------------------------------------------------------------------------------
+      # Para deploy automático direto na Hostinger via FTP/SFTP:
+      # Basta configurar os Segredos em: Settings > Secrets and variables > Actions:
+      # - FTP_SERVER (ex: ftp.seusite.com.br ou o IP da Hostinger)
+      # - FTP_USERNAME (usuário FTP criado no hPanel)
+      # - FTP_PASSWORD (senha FTP)
+      # ---------------------------------------------------------------------------------
+      # - name: 7. Deploy Automático via FTP para Hostinger
+      #   if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+      #   uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+      #   with:
+      #     server: ${{ secrets.FTP_SERVER }}
+      #     username: ${{ secrets.FTP_USERNAME }}
+      #     password: ${{ secrets.FTP_PASSWORD }}
+      #     local-dir: dist/
+      #     server-dir: public_html/
