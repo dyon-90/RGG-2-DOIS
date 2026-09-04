@@ -1,0 +1,47 @@
+# ----------------------------------------------------------------------
+# Configuração Apache / LiteSpeed para Hostinger (SPA Vite / React - pasta dist)
+# ----------------------------------------------------------------------
+
+Options -Indexes
+DirectoryIndex index.html
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+
+  # Permitir arquivos e pastas reais existentes (JS, CSS, Imagens, Fontes)
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+
+  # Redirecionar todas as outras requisições para o index.html da SPA
+  RewriteRule ^ index.html [L,QSA]
+</IfModule>
+
+# Tipos MIME para módulos JavaScript (ESM) e fontes modernas
+<IfModule mod_mime.c>
+  AddType application/javascript .js .mjs
+  AddType text/css .css
+  AddType font/woff2 .woff2
+  AddType font/woff .woff
+  AddType image/svg+xml .svg
+  AddType application/json .json
+  AddType image/webp .webp
+</IfModule>
+
+# Compressão Gzip / Deflate para alta velocidade de carregamento
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css
+  AddOutputFilterByType DEFLATE application/javascript application/x-javascript application/json
+  AddOutputFilterByType DEFLATE image/svg+xml font/woff font/woff2
+</IfModule>
+
+# Cache de Navegador (Assets estáticos com hash)
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType text/html "access plus 0 seconds"
+  ExpiresByType application/javascript "access plus 1 year"
+  ExpiresByType text/css "access plus 1 year"
+  ExpiresByType font/woff2 "access plus 1 year"
+  ExpiresByType font/woff "access plus 1 year"
+</IfModule>

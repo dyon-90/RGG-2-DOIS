@@ -1,5 +1,6 @@
 # ----------------------------------------------------------------------
-# Configuração Apache / LiteSpeed para Hostinger (Projeto 2+DOIS= Aprender!)
+# Configuração Apache / LiteSpeed - Projeto 2+DOIS= Aprender!
+# Otimizado para SPAs React / Vite em hospedagem de produção (Hostinger)
 # ----------------------------------------------------------------------
 
 Options -Indexes
@@ -9,48 +10,72 @@ DirectoryIndex index.php index.html
   RewriteEngine On
   RewriteBase /
 
-  # 1. Se o arquivo ou diretório físico existir na raiz, serve diretamente
+  # 1. Se o arquivo ou diretório físico existir exatamente no caminho solicitado, serve diretamente
   RewriteCond %{REQUEST_FILENAME} -f [OR]
   RewriteCond %{REQUEST_FILENAME} -d
   RewriteRule ^ - [L]
 
-  # 2. Se for uma requisição de assets e existir em dist/assets/
-  RewriteCond %{REQUEST_URI} ^/assets/(.*)$
+  # 2. Resolução de recursos estáticos em múltiplos caminhos de compilação
+  # Se solicitado /assets/... e existir fisicamente em /dist/assets/
   RewriteCond %{DOCUMENT_ROOT}/dist/assets/$1 -f
   RewriteRule ^assets/(.*)$ dist/assets/$1 [L]
 
-  # 3. Se for uma requisição de assets e existir em build/assets/
-  RewriteCond %{REQUEST_URI} ^/assets/(.*)$
+  # Se solicitado /assets/... e existir fisicamente em /build/assets/
   RewriteCond %{DOCUMENT_ROOT}/build/assets/$1 -f
   RewriteRule ^assets/(.*)$ build/assets/$1 [L]
 
-  # 4. Redirecionar todas as rotas SPA para index.php
-  RewriteRule ^ index.php [L]
+  # Se qualquer outro arquivo existir dentro de dist/ (ex: favicon, robots.txt)
+  RewriteCond %{DOCUMENT_ROOT}/dist%{REQUEST_URI} -f
+  RewriteRule ^(.*)$ dist/$1 [L]
+
+  # 3. Fallback universal para Single Page Application (SPA):
+  # Qualquer requisição de rota (ex: /login, /turmas, /aluno) é direcionada para o index.php
+  RewriteRule ^ index.php [L,QSA]
 </IfModule>
 
-# Tipos MIME para módulos JavaScript (ESM) e fontes web
+# Tipos MIME para módulos JavaScript (ESM), estilos, fontes e imagens
 <IfModule mod_mime.c>
   AddType application/javascript .js .mjs
   AddType text/css .css
   AddType font/woff2 .woff2
   AddType font/woff .woff
+  AddType font/ttf .ttf
+  AddType font/eot .eot
   AddType image/svg+xml .svg
   AddType application/json .json
+  AddType image/webp .webp
+  AddType image/x-icon .ico
 </IfModule>
 
-# Compressão Gzip / Deflate para alta performance
+# Compressão Gzip / Deflate para otimização de largura de banda e carregamento rápido
 <IfModule mod_deflate.c>
   AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css
   AddOutputFilterByType DEFLATE application/javascript application/x-javascript application/json
   AddOutputFilterByType DEFLATE image/svg+xml font/woff font/woff2
 </IfModule>
 
-# Cabeçalhos de Cache para Assets Estáticos
+# Controle de Cache para Recursos Estáticos Imutáveis
 <IfModule mod_expires.c>
   ExpiresActive On
-  ExpiresByType image/svg+xml "access plus 1 month"
+  ExpiresDefault "access plus 1 day"
+  
+  # HTML da SPA: sempre revalidar para receber novos deploys imediatamente
+  ExpiresByType text/html "access plus 0 seconds"
+  
+  # Bundles com hash no nome (Vite): cache longo de 1 ano
+  ExpiresByType application/javascript "access plus 1 year"
+  ExpiresByType text/css "access plus 1 year"
   ExpiresByType font/woff2 "access plus 1 year"
   ExpiresByType font/woff "access plus 1 year"
-  ExpiresByType text/css "access plus 1 month"
-  ExpiresByType application/javascript "access plus 1 month"
+  ExpiresByType image/svg+xml "access plus 1 month"
+  ExpiresByType image/webp "access plus 1 month"
+  ExpiresByType image/png "access plus 1 month"
+  ExpiresByType image/jpeg "access plus 1 month"
+</IfModule>
+
+# Cabeçalhos de Segurança
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "SAMEORIGIN"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
 </IfModule>
