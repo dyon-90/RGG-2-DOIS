@@ -20,6 +20,7 @@ import {
 import { ActivityDetailsModal } from '../Modals/ActivityDetailsModal';
 import { AcademicCalendar } from '../Calendar/AcademicCalendar';
 import { StudentGradesEvolutionChart } from './StudentGradesEvolutionChart';
+import { StudentDisciplineComparisonChart } from './StudentDisciplineComparisonChart';
 
 interface StudentDashboardProps {
   student: Student;
@@ -377,6 +378,9 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ student }) =
       {/* Tab 2: Rankings & Performance */}
       {activeTab === 'rankings' && (
         <div className="space-y-6 animate-fade-in">
+          {/* Recharts Bar Chart: Student vs Class Average per Discipline */}
+          <StudentDisciplineComparisonChart student={student} />
+
           {/* Recharts Grade Evolution Over the Bimester */}
           <StudentGradesEvolutionChart
             student={student}
