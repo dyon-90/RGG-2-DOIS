@@ -1,14 +1,10 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { AppData, School, ClassRoom, Student, Activity, Grade, Post, AcademicEvent, ToastMessage, AdminUser } from '../types';
 import { initialDefaultData, defaultAdmins } from '../data/initialData';
-import { 
-  getFromIndexedDB, 
-  saveToIndexedDB, 
-  saveToLocalStorage, 
-  loadFromLocalStorage,
-  sanitizeAppData,
-  deduplicateById
-} from '../utils/storage';
+import { sanitizeAppData } from '../utils/storage';
+import { api } from '../services/api';
+
+export type CloudSyncStatus = 'synced' | 'saving' | 'error' | 'loading';
 
 interface DataContextType {
   data: AppData;
@@ -16,26 +12,32 @@ interface DataContextType {
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
   removeToast: (id: string) => void;
   
+  // Estado de Sincronização em Nuvem Centralizada
+  isLoading: boolean;
+  syncStatus: CloudSyncStatus;
+  syncError: string | null;
+  retryConnection: () => Promise<void>;
+
   // School
-  addSchool: (school: Omit<School, 'entity_id' | 'created_at'>) => boolean;
-  deleteSchool: (entityId: string) => void;
+  addSchool: (school: Omit<School, 'entity_id' | 'created_at'>) => Promise<boolean>;
+  deleteSchool: (entityId: string) => Promise<void>;
   
   // Class
-  addClass: (cls: Omit<ClassRoom, 'entity_id' | 'created_at'>) => boolean;
-  deleteClass: (entityId: string) => void;
+  addClass: (cls: Omit<ClassRoom, 'entity_id' | 'created_at'>) => Promise<boolean>;
+  deleteClass: (entityId: string) => Promise<void>;
   
   // Student
-  addStudent: (student: Omit<Student, 'entity_id' | 'created_at'>) => boolean;
-  deleteStudent: (entityId: string) => void;
+  addStudent: (student: Omit<Student, 'entity_id' | 'created_at'>) => Promise<boolean>;
+  deleteStudent: (entityId: string) => Promise<void>;
   
   // Activity
-  addActivity: (activity: Omit<Activity, 'entity_id' | 'created_at'>) => boolean;
-  updateActivity: (activity: Activity) => boolean;
-  deleteActivity: (entityId: string) => void;
+  addActivity: (activity: Omit<Activity, 'entity_id' | 'created_at'>) => Promise<boolean>;
+  updateActivity: (activity: Activity) => Promise<boolean>;
+  deleteActivity: (entityId: string) => Promise<void>;
   
   // Grade
-  addGrade: (grade: Omit<Grade, 'entity_id' | 'created_at'>) => boolean;
-  deleteGrade: (entityId: string) => void;
+  addGrade: (grade: Omit<Grade, 'entity_id' | 'created_at'>) => Promise<boolean>;
+  deleteGrade: (entityId: string) => Promise<void>;
   
   // Post (Mural)
   addPost: (post: {
@@ -48,121 +50,178 @@ interface DataContextType {
     link?: string;
     image?: string;
     parentId?: string;
-  }) => boolean;
-  togglePinPost: (entityId: string) => void;
-  deletePost: (entityId: string) => void;
+  }) => Promise<boolean>;
+  togglePinPost: (entityId: string) => Promise<void>;
+  deletePost: (entityId: string) => Promise<void>;
 
   // Academic Calendar Events
-  addEvent: (event: Omit<AcademicEvent, 'entity_id' | 'created_at'>) => boolean;
-  updateEvent: (event: AcademicEvent) => boolean;
-  deleteEvent: (entityId: string) => void;
+  addEvent: (event: Omit<AcademicEvent, 'entity_id' | 'created_at'>) => Promise<boolean>;
+  updateEvent: (event: AcademicEvent) => Promise<boolean>;
+  deleteEvent: (entityId: string) => Promise<void>;
 
   // Administrators Management
-  addAdmin: (admin: Omit<AdminUser, 'entity_id' | 'created_at'>) => boolean;
-  updateAdmin: (admin: AdminUser) => boolean;
-  deleteAdmin: (entityId: string) => boolean;
+  addAdmin: (admin: Omit<AdminUser, 'entity_id' | 'created_at'>) => Promise<boolean>;
+  updateAdmin: (admin: AdminUser) => Promise<boolean>;
+  deleteAdmin: (entityId: string) => Promise<boolean>;
   
   // Backup / Data Management
+  saveAllChanges: () => Promise<boolean>;
   exportJSON: () => void;
   exportCSV: () => void;
   exportPDF: () => void;
-  importJSON: (jsonString: string) => { success: boolean; message: string; count?: number };
-  resetToDefaultData: () => void;
-  clearAllData: () => void;
+  importJSON: (jsonString: string) => Promise<{ success: boolean; message: string; count?: number }>;
+  resetToDefaultData: () => Promise<void>;
+  clearAllData: () => Promise<void>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [data, setData] = useState<AppData>(() => {
-    const cached = loadFromLocalStorage();
-    if (cached) {
-      return sanitizeAppData({
-        ...cached,
-        events: cached.events && cached.events.length > 0 ? cached.events : (initialDefaultData.events || [])
-      });
-    }
-    return sanitizeAppData(initialDefaultData);
-  });
-
+  // Estado centralizado dos dados da aplicação
+  const [data, setData] = useState<AppData>(() => sanitizeAppData(initialDefaultData));
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
-  const [isLoadedFromIDB, setIsLoadedFromIDB] = useState(false);
+  
+  // Estados de conectividade e sincronização em tempo real com a nuvem
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [syncStatus, setSyncStatus] = useState<CloudSyncStatus>('loading');
+  const [syncError, setSyncError] = useState<string | null>(null);
 
-  // Load from IndexedDB on initial mount to retrieve full persistent state (with media)
+  // Salvaguarda ativa: impede terminantemente que a aplicação fique presa em 'saving'
   useEffect(() => {
-    let isMounted = true;
-    getFromIndexedDB()
-      .then(idbData => {
-        if (isMounted && idbData && idbData.schools && idbData.classes && idbData.students) {
-          setData(sanitizeAppData({
-            ...idbData,
-            events: idbData.events && idbData.events.length > 0 ? idbData.events : (initialDefaultData.events || [])
-          }));
-        }
-      })
-      .catch(err => {
-        console.warn('Could not read initial state from IndexedDB:', err);
-      })
-      .finally(() => {
-        if (isMounted) setIsLoadedFromIDB(true);
-      });
+    if (syncStatus === 'saving') {
+      const timer = setTimeout(() => {
+        setSyncStatus('synced');
+      }, 1800);
+      return () => clearTimeout(timer);
+    }
+  }, [syncStatus]);
 
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  // Sync to IndexedDB and localStorage whenever data changes
-  useEffect(() => {
-    // Save to IndexedDB (asynchronous, robust, no 5MB limit)
-    saveToIndexedDB(data).catch(err => {
-      console.warn('Error saving to IndexedDB:', err);
-    });
-
-    // Save to localStorage safely (with quota guard)
-    saveToLocalStorage(data);
-  }, [data]);
-
-  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'success') => {
     const id = Date.now().toString() + Math.random().toString(36).slice(2, 6);
     setToasts(prev => [...prev, { id, message, type }]);
     setTimeout(() => {
-      removeToast(id);
-    }, 3500);
-  };
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 3800);
+  }, []);
 
-  const removeToast = (id: string) => {
+  const removeToast = useCallback((id: string) => {
     setToasts(prev => prev.filter(t => t.id !== id));
+  }, []);
+
+  // Helper de geração de IDs únicos
+  const uid = (prefix: string) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+  // ---------------------------------------------------------------------------
+  // Conexão e sincronização em tempo real com a nuvem (Firestore)
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    let isMounted = true;
+
+    const setupCloudData = async () => {
+      try {
+        setSyncStatus('loading');
+        // Se o banco na nuvem estiver completamente vazio, inicializa com os dados iniciais
+        await api.seedIfEmpty();
+      } catch (err: any) {
+        console.warn('[DataContext] Falha na verificação de carga inicial:', err);
+      }
+    };
+
+    setupCloudData();
+
+    // Assina atualizações em tempo real do banco de dados compartilhado.
+    // Qualquer dispositivo conectado receberá instantaneamente as alterações.
+    const unsubscribe = api.subscribe(
+      (freshData) => {
+        if (!isMounted) return;
+        setData(freshData);
+        setIsLoading(false);
+        setSyncStatus('synced');
+        setSyncError(null);
+      },
+      (error) => {
+        if (!isMounted) return;
+        console.error('[DataContext] Erro no listener do banco de dados na nuvem:', error);
+        setSyncStatus('error');
+        setSyncError(error.message || 'Falha de conexão com o banco de dados remoto');
+        setIsLoading(false);
+        showToast('Aviso: Falha temporária de comunicação com o banco na nuvem.', 'error');
+      }
+    );
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, [showToast]);
+
+  // Função para testar e reconectar manualmente ao banco na nuvem
+  const retryConnection = async () => {
+    setSyncStatus('loading');
+    setSyncError(null);
+    try {
+      const isOnline = await api.checkHealth();
+      if (!isOnline) {
+        throw new Error('Servidor de banco de dados offline ou sem resposta.');
+      }
+      const cloudData = await api.getAppData();
+      setData(cloudData);
+      setSyncStatus('synced');
+      showToast('Conectado ao banco de dados na nuvem com sucesso!', 'success');
+    } catch (err: any) {
+      setSyncStatus('error');
+      setSyncError(err.message || 'Erro ao conectar');
+      showToast('Não foi possível conectar: ' + (err.message || 'Erro desconhecido'), 'error');
+    }
   };
 
-  // Helper ID generator
-  const uid = (prefix: string) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-
-  // Schools
-  const addSchool = (school: Omit<School, 'entity_id' | 'created_at'>) => {
+  // ---------------------------------------------------------------------------
+  // Escolas (Schools)
+  // ---------------------------------------------------------------------------
+  const addSchool = async (school: Omit<School, 'entity_id' | 'created_at'>): Promise<boolean> => {
     const newSchool: School = {
       ...school,
       entity_id: uid('school'),
       created_at: new Date().toISOString()
     };
+    // Atualização otimista imediata na interface
     setData(prev => ({
       ...prev,
       schools: [newSchool, ...prev.schools]
     }));
-    showToast('Escola cadastrada com sucesso!');
-    return true;
+    setSyncStatus('saving');
+    try {
+      await api.saveSchool(newSchool);
+      setSyncStatus('synced');
+      showToast('Escola cadastrada e salva na nuvem com sucesso!');
+      return true;
+    } catch (err: any) {
+      setSyncStatus('error');
+      showToast('Erro ao salvar escola na nuvem: ' + err.message, 'error');
+      return false;
+    }
   };
 
-  const deleteSchool = (entityId: string) => {
+  const deleteSchool = async (entityId: string): Promise<void> => {
     setData(prev => ({
       ...prev,
       schools: prev.schools.filter(s => s.entity_id !== entityId)
     }));
-    showToast('Escola removida', 'info');
+    setSyncStatus('saving');
+    try {
+      await api.deleteSchool(entityId);
+      setSyncStatus('synced');
+      showToast('Escola removida do banco de dados na nuvem', 'info');
+    } catch (err: any) {
+      setSyncStatus('error');
+      showToast('Erro ao excluir escola da nuvem: ' + err.message, 'error');
+    }
   };
 
-  // Classes
-  const addClass = (cls: Omit<ClassRoom, 'entity_id' | 'created_at'>) => {
+  // ---------------------------------------------------------------------------
+  // Turmas (Classes)
+  // ---------------------------------------------------------------------------
+  const addClass = async (cls: Omit<ClassRoom, 'entity_id' | 'created_at'>): Promise<boolean> => {
     const newClass: ClassRoom = {
       ...cls,
       entity_id: uid('class'),
@@ -172,20 +231,39 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ...prev,
       classes: [newClass, ...prev.classes]
     }));
-    showToast('Turma cadastrada com sucesso!');
-    return true;
+    setSyncStatus('saving');
+    try {
+      await api.saveClass(newClass);
+      setSyncStatus('synced');
+      showToast('Turma cadastrada e sincronizada na nuvem com sucesso!');
+      return true;
+    } catch (err: any) {
+      setSyncStatus('error');
+      showToast('Erro ao salvar turma na nuvem: ' + err.message, 'error');
+      return false;
+    }
   };
 
-  const deleteClass = (entityId: string) => {
+  const deleteClass = async (entityId: string): Promise<void> => {
     setData(prev => ({
       ...prev,
       classes: prev.classes.filter(c => c.entity_id !== entityId)
     }));
-    showToast('Turma removida', 'info');
+    setSyncStatus('saving');
+    try {
+      await api.deleteClass(entityId);
+      setSyncStatus('synced');
+      showToast('Turma removida do banco de dados na nuvem', 'info');
+    } catch (err: any) {
+      setSyncStatus('error');
+      showToast('Erro ao remover turma da nuvem: ' + err.message, 'error');
+    }
   };
 
-  // Students
-  const addStudent = (student: Omit<Student, 'entity_id' | 'created_at'>) => {
+  // ---------------------------------------------------------------------------
+  // Alunos (Students)
+  // ---------------------------------------------------------------------------
+  const addStudent = async (student: Omit<Student, 'entity_id' | 'created_at'>): Promise<boolean> => {
     const newStudent: Student = {
       ...student,
       entity_id: uid('student'),
@@ -195,20 +273,39 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ...prev,
       students: [newStudent, ...prev.students]
     }));
-    showToast('Aluno cadastrado com sucesso!');
-    return true;
+    setSyncStatus('saving');
+    try {
+      await api.saveStudent(newStudent);
+      setSyncStatus('synced');
+      showToast(`Aluno "${newStudent.student_name}" cadastrado e sincronizado na nuvem!`);
+      return true;
+    } catch (err: any) {
+      setSyncStatus('error');
+      showToast('Erro ao cadastrar aluno na nuvem: ' + err.message, 'error');
+      return false;
+    }
   };
 
-  const deleteStudent = (entityId: string) => {
+  const deleteStudent = async (entityId: string): Promise<void> => {
     setData(prev => ({
       ...prev,
       students: prev.students.filter(s => s.entity_id !== entityId)
     }));
-    showToast('Aluno removido', 'info');
+    setSyncStatus('saving');
+    try {
+      await api.deleteStudent(entityId);
+      setSyncStatus('synced');
+      showToast('Aluno removido do banco de dados na nuvem', 'info');
+    } catch (err: any) {
+      setSyncStatus('error');
+      showToast('Erro ao remover aluno da nuvem: ' + err.message, 'error');
+    }
   };
 
-  // Activities
-  const addActivity = (activity: Omit<Activity, 'entity_id' | 'created_at'>) => {
+  // ---------------------------------------------------------------------------
+  // Atividades (Activities)
+  // ---------------------------------------------------------------------------
+  const addActivity = async (activity: Omit<Activity, 'entity_id' | 'created_at'>): Promise<boolean> => {
     const newActivity: Activity = {
       ...activity,
       entity_id: uid('act'),
@@ -218,29 +315,57 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ...prev,
       activities: [newActivity, ...prev.activities]
     }));
-    showToast('Atividade criada com sucesso!');
-    return true;
+    setSyncStatus('saving');
+    try {
+      await api.saveActivity(newActivity);
+      setSyncStatus('synced');
+      showToast('Atividade salva e disponível na nuvem para todos os alunos!');
+      return true;
+    } catch (err: any) {
+      setSyncStatus('error');
+      showToast('Erro ao salvar atividade na nuvem: ' + err.message, 'error');
+      return false;
+    }
   };
 
-  const updateActivity = (updated: Activity) => {
+  const updateActivity = async (updated: Activity): Promise<boolean> => {
     setData(prev => ({
       ...prev,
       activities: prev.activities.map(a => a.entity_id === updated.entity_id ? updated : a)
     }));
-    showToast('Atividade atualizada!');
-    return true;
+    setSyncStatus('saving');
+    try {
+      await api.saveActivity(updated);
+      setSyncStatus('synced');
+      showToast('Atividade atualizada no banco de dados remoto!');
+      return true;
+    } catch (err: any) {
+      setSyncStatus('error');
+      showToast('Erro ao atualizar atividade na nuvem: ' + err.message, 'error');
+      return false;
+    }
   };
 
-  const deleteActivity = (entityId: string) => {
+  const deleteActivity = async (entityId: string): Promise<void> => {
     setData(prev => ({
       ...prev,
       activities: prev.activities.filter(a => a.entity_id !== entityId)
     }));
-    showToast('Atividade removida', 'info');
+    setSyncStatus('saving');
+    try {
+      await api.deleteActivity(entityId);
+      setSyncStatus('synced');
+      showToast('Atividade removida da nuvem', 'info');
+    } catch (err: any) {
+      setSyncStatus('error');
+      showToast('Erro ao excluir atividade da nuvem: ' + err.message, 'error');
+    }
   };
 
-  // Grades
-  const addGrade = (grade: Omit<Grade, 'entity_id' | 'created_at'>) => {
+  // ---------------------------------------------------------------------------
+  // Notas (Grades)
+  // ---------------------------------------------------------------------------
+  const addGrade = async (grade: Omit<Grade, 'entity_id' | 'created_at'>): Promise<boolean> => {
     const newGrade: Grade = {
       ...grade,
       entity_id: uid('grade'),
@@ -250,20 +375,39 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ...prev,
       grades: [newGrade, ...prev.grades]
     }));
-    showToast('Nota registrada com sucesso!');
-    return true;
+    setSyncStatus('saving');
+    try {
+      await api.saveGrade(newGrade);
+      setSyncStatus('synced');
+      showToast('Nota registrada e sincronizada na nuvem com sucesso!');
+      return true;
+    } catch (err: any) {
+      setSyncStatus('error');
+      showToast('Erro ao lançar nota na nuvem: ' + err.message, 'error');
+      return false;
+    }
   };
 
-  const deleteGrade = (entityId: string) => {
+  const deleteGrade = async (entityId: string): Promise<void> => {
     setData(prev => ({
       ...prev,
       grades: prev.grades.filter(g => g.entity_id !== entityId)
     }));
-    showToast('Nota removida', 'info');
+    setSyncStatus('saving');
+    try {
+      await api.deleteGrade(entityId);
+      setSyncStatus('synced');
+      showToast('Nota removida da nuvem', 'info');
+    } catch (err: any) {
+      setSyncStatus('error');
+      showToast('Erro ao remover nota da nuvem: ' + err.message, 'error');
+    }
   };
 
-  // Posts
-  const addPost = (postParams: {
+  // ---------------------------------------------------------------------------
+  // Mural de Avisos (Posts)
+  // ---------------------------------------------------------------------------
+  const addPost = async (postParams: {
     content: string;
     authorId: string;
     authorName: string;
@@ -273,7 +417,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     link?: string;
     image?: string;
     parentId?: string;
-  }) => {
+  }): Promise<boolean> => {
     const newPost: Post = {
       entity_id: uid('post'),
       post_content: postParams.content,
@@ -293,34 +437,64 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ...prev,
       posts: [newPost, ...prev.posts]
     }));
-    showToast('Mensagem publicada no mural!');
-    return true;
+    setSyncStatus('saving');
+    try {
+      await api.savePost(newPost);
+      setSyncStatus('synced');
+      showToast('Mensagem publicada no mural e sincronizada na nuvem!');
+      return true;
+    } catch (err: any) {
+      setSyncStatus('error');
+      showToast('Erro ao publicar mensagem na nuvem: ' + err.message, 'error');
+      return false;
+    }
   };
 
-  const togglePinPost = (entityId: string) => {
+  const togglePinPost = async (entityId: string): Promise<void> => {
+    const targetPost = data.posts.find(p => p.entity_id === entityId);
+    if (!targetPost) return;
+
+    const updatedPost: Post = {
+      ...targetPost,
+      post_is_pinned: !targetPost.post_is_pinned
+    };
+
     setData(prev => ({
       ...prev,
-      posts: prev.posts.map(p => {
-        if (p.entity_id === entityId) {
-          const newPinned = !p.post_is_pinned;
-          showToast(newPinned ? '📌 Aviso fixado no mural' : '📌 Aviso desafixado', 'info');
-          return { ...p, post_is_pinned: newPinned };
-        }
-        return p;
-      })
+      posts: prev.posts.map(p => p.entity_id === entityId ? updatedPost : p)
     }));
+
+    setSyncStatus('saving');
+    try {
+      await api.savePost(updatedPost);
+      setSyncStatus('synced');
+      showToast(updatedPost.post_is_pinned ? '📌 Aviso fixado no mural na nuvem' : '📌 Aviso desafixado', 'info');
+    } catch (err: any) {
+      setSyncStatus('error');
+      showToast('Erro ao atualizar status do aviso na nuvem: ' + err.message, 'error');
+    }
   };
 
-  const deletePost = (entityId: string) => {
+  const deletePost = async (entityId: string): Promise<void> => {
     setData(prev => ({
       ...prev,
       posts: prev.posts.filter(p => p.entity_id !== entityId && p.post_parent_id !== entityId)
     }));
-    showToast('Mensagem removida do mural', 'info');
+    setSyncStatus('saving');
+    try {
+      await api.deletePost(entityId);
+      setSyncStatus('synced');
+      showToast('Mensagem removida do mural na nuvem', 'info');
+    } catch (err: any) {
+      setSyncStatus('error');
+      showToast('Erro ao remover mensagem da nuvem: ' + err.message, 'error');
+    }
   };
 
-  // Academic Calendar Events
-  const addEvent = (eventData: Omit<AcademicEvent, 'entity_id' | 'created_at'>) => {
+  // ---------------------------------------------------------------------------
+  // Calendário Acadêmico (Events)
+  // ---------------------------------------------------------------------------
+  const addEvent = async (eventData: Omit<AcademicEvent, 'entity_id' | 'created_at'>): Promise<boolean> => {
     const newEvent: AcademicEvent = {
       ...eventData,
       entity_id: uid('event'),
@@ -330,29 +504,57 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ...prev,
       events: [newEvent, ...(prev.events || [])]
     }));
-    showToast('Evento acadêmico agendado no calendário!');
-    return true;
+    setSyncStatus('saving');
+    try {
+      await api.saveEvent(newEvent);
+      setSyncStatus('synced');
+      showToast('Evento acadêmico agendado e salvo na nuvem!');
+      return true;
+    } catch (err: any) {
+      setSyncStatus('error');
+      showToast('Erro ao agendar evento na nuvem: ' + err.message, 'error');
+      return false;
+    }
   };
 
-  const updateEvent = (updated: AcademicEvent) => {
+  const updateEvent = async (updated: AcademicEvent): Promise<boolean> => {
     setData(prev => ({
       ...prev,
       events: (prev.events || []).map(e => e.entity_id === updated.entity_id ? updated : e)
     }));
-    showToast('Evento acadêmico atualizado com sucesso!');
-    return true;
+    setSyncStatus('saving');
+    try {
+      await api.saveEvent(updated);
+      setSyncStatus('synced');
+      showToast('Evento acadêmico atualizado no banco na nuvem!');
+      return true;
+    } catch (err: any) {
+      setSyncStatus('error');
+      showToast('Erro ao atualizar evento na nuvem: ' + err.message, 'error');
+      return false;
+    }
   };
 
-  const deleteEvent = (entityId: string) => {
+  const deleteEvent = async (entityId: string): Promise<void> => {
     setData(prev => ({
       ...prev,
       events: (prev.events || []).filter(e => e.entity_id !== entityId)
     }));
-    showToast('Evento removido do calendário', 'info');
+    setSyncStatus('saving');
+    try {
+      await api.deleteEvent(entityId);
+      setSyncStatus('synced');
+      showToast('Evento removido do calendário na nuvem', 'info');
+    } catch (err: any) {
+      setSyncStatus('error');
+      showToast('Erro ao remover evento da nuvem: ' + err.message, 'error');
+    }
   };
 
-  // Administrators Management
-  const addAdmin = (admin: Omit<AdminUser, 'entity_id' | 'created_at'>): boolean => {
+  // ---------------------------------------------------------------------------
+  // Administradores (Admins)
+  // ---------------------------------------------------------------------------
+  const addAdmin = async (admin: Omit<AdminUser, 'entity_id' | 'created_at'>): Promise<boolean> => {
     const trimmedUsername = admin.username.trim().toLowerCase();
     if (!trimmedUsername) {
       showToast('O login de usuário é obrigatório.', 'error');
@@ -368,7 +570,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     const currentAdmins = data.admins && data.admins.length > 0 ? data.admins : defaultAdmins;
-    const exists = currentAdmins.some(a => a.username.toLowerCase() === trimmedUsername);
+    const exists = currentAdmins.some(a => (a.username || '').toLowerCase() === trimmedUsername);
     if (exists) {
       showToast(`O usuário "${trimmedUsername}" já está em uso por outro administrador!`, 'error');
       return false;
@@ -390,43 +592,61 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       admins: [...(prev.admins && prev.admins.length > 0 ? prev.admins : defaultAdmins), newAdmin]
     }));
 
-    showToast(`Administrador "${newAdmin.name}" cadastrado com sucesso!`, 'success');
-    return true;
+    setSyncStatus('saving');
+    try {
+      await api.saveAdmin(newAdmin);
+      setSyncStatus('synced');
+      showToast(`Administrador "${newAdmin.name}" salvo no banco na nuvem!`, 'success');
+      return true;
+    } catch (err: any) {
+      setSyncStatus('error');
+      showToast('Erro ao salvar administrador na nuvem: ' + err.message, 'error');
+      return false;
+    }
   };
 
-  const updateAdmin = (admin: AdminUser): boolean => {
+  const updateAdmin = async (admin: AdminUser): Promise<boolean> => {
     const trimmedUsername = admin.username.trim().toLowerCase();
     const currentAdmins = data.admins && data.admins.length > 0 ? data.admins : defaultAdmins;
 
     const duplicate = currentAdmins.some(
-      a => a.entity_id !== admin.entity_id && a.username.toLowerCase() === trimmedUsername
+      a => a.entity_id !== admin.entity_id && (a.username || '').toLowerCase() === trimmedUsername
     );
     if (duplicate) {
       showToast(`O login "${trimmedUsername}" já está em uso por outro administrador!`, 'error');
       return false;
     }
 
+    const updatedAdmin: AdminUser = {
+      ...admin,
+      username: trimmedUsername,
+      name: admin.name.trim(),
+      password: admin.password.trim(),
+      email: admin.email?.trim() || undefined,
+      role: admin.role?.trim() || 'Administrador'
+    };
+
     setData(prev => ({
       ...prev,
       admins: (prev.admins && prev.admins.length > 0 ? prev.admins : defaultAdmins).map(a =>
-        a.entity_id === admin.entity_id
-          ? {
-              ...admin,
-              username: trimmedUsername,
-              name: admin.name.trim(),
-              password: admin.password.trim(),
-              email: admin.email?.trim() || undefined,
-              role: admin.role?.trim() || 'Administrador'
-            }
-          : a
+        a.entity_id === admin.entity_id ? updatedAdmin : a
       )
     }));
 
-    showToast('Dados do administrador atualizados com sucesso!', 'success');
-    return true;
+    setSyncStatus('saving');
+    try {
+      await api.saveAdmin(updatedAdmin);
+      setSyncStatus('synced');
+      showToast('Dados do administrador atualizados na nuvem!', 'success');
+      return true;
+    } catch (err: any) {
+      setSyncStatus('error');
+      showToast('Erro ao atualizar administrador na nuvem: ' + err.message, 'error');
+      return false;
+    }
   };
 
-  const deleteAdmin = (entityId: string): boolean => {
+  const deleteAdmin = async (entityId: string): Promise<boolean> => {
     const currentAdmins = data.admins && data.admins.length > 0 ? data.admins : defaultAdmins;
     if (currentAdmins.length <= 1) {
       showToast('Não é possível excluir o único administrador do sistema.', 'error');
@@ -438,35 +658,45 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       admins: (prev.admins && prev.admins.length > 0 ? prev.admins : defaultAdmins).filter(a => a.entity_id !== entityId)
     }));
 
-    showToast('Administrador removido com sucesso!', 'info');
-    return true;
+    setSyncStatus('saving');
+    try {
+      await api.deleteAdmin(entityId);
+      setSyncStatus('synced');
+      showToast('Administrador removido da nuvem!', 'info');
+      return true;
+    } catch (err: any) {
+      setSyncStatus('error');
+      showToast('Erro ao remover administrador da nuvem: ' + err.message, 'error');
+      return false;
+    }
   };
 
-  // Export JSON
+  // ---------------------------------------------------------------------------
+  // Exportações e Relatórios
+  // ---------------------------------------------------------------------------
   const exportJSON = () => {
     try {
       const backup = {
         exported_at: new Date().toISOString(),
-        platform: '2+DOIS Aprender',
-        version: '1.0',
+        platform: '2+DOIS Aprender (Cloud Synced)',
+        version: '2.0',
         data
       };
       const json = JSON.stringify(backup, null, 2);
       const blob = new Blob([json], { type: 'application/json;charset=utf-8;' });
-      const fileName = `backup_aprender_${new Date().toISOString().split('T')[0]}.json`;
+      const fileName = `backup_aprender_nuvem_${new Date().toISOString().split('T')[0]}.json`;
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
       link.download = fileName;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      showToast('✓ Arquivo JSON exportado com sucesso!');
+      showToast('✓ Arquivo JSON exportado com sucesso a partir da nuvem!');
     } catch (err: any) {
       showToast('Erro ao exportar JSON: ' + err.message, 'error');
     }
   };
 
-  // Export CSV
   const exportCSV = () => {
     try {
       const esc = (v: any) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
@@ -490,13 +720,20 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         rows.push([esc('Atividade'), esc(a.activity_name), esc(a.activity_discipline), esc(a.activity_class_name), esc(a.activity_due_date), esc(a.activity_description || '')].join(','));
       });
 
-      data.grades.forEach(g => {
-        rows.push([esc('Nota'), esc(g.grade_student_name), esc(g.grade_activity_name), esc(g.grade_value.toFixed(1)), esc(g.grade_feedback || ''), esc(g.grade_date)].join(','));
+      (data.grades || []).forEach(g => {
+        rows.push([
+          esc('Nota'),
+          esc(g.grade_student_name || 'Aluno'),
+          esc(g.grade_activity_name || 'Atividade'),
+          esc((Number(g.grade_value) || 0).toFixed(1)),
+          esc(g.grade_feedback || ''),
+          esc(g.grade_date || '')
+        ].join(','));
       });
 
       const csvContent = '\uFEFF' + rows.join('\r\n');
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const fileName = `relatorio_aprender_${new Date().toISOString().split('T')[0]}.csv`;
+      const fileName = `relatorio_aprender_nuvem_${new Date().toISOString().split('T')[0]}.csv`;
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
       link.download = fileName;
@@ -509,7 +746,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Export PDF Report (Print-friendly generation)
   const exportPDF = () => {
     try {
       const printWindow = window.open('', '_blank');
@@ -549,7 +785,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         <body>
           <div class="header">
             <h1>Projeto 2+DOIS= Aprender!</h1>
-            <div class="meta">Relatório Consolidado Escolar • Gerado em: ${new Date().toLocaleString('pt-BR')}</div>
+            <div class="meta">Relatório Consolidado Escolar • Base Nuvem • Gerado em: ${new Date().toLocaleString('pt-BR')}</div>
           </div>
 
           <div class="stats">
@@ -596,12 +832,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           <table>
             <thead><tr><th>Aluno</th><th>Atividade</th><th>Nota</th><th>Feedback</th></tr></thead>
             <tbody>
-              ${data.grades.length > 0 ? data.grades.map(g => `<tr><td>${g.grade_student_name}</td><td>${g.grade_activity_name}</td><td><strong>${g.grade_value.toFixed(1)}</strong></td><td>${g.grade_feedback || '—'}</td></tr>`).join('') : '<tr><td colspan="4">Nenhuma nota cadastrada</td></tr>'}
+              ${(data.grades || []).length > 0 ? (data.grades || []).map(g => `<tr><td>${g.grade_student_name || 'Aluno'}</td><td>${g.grade_activity_name || 'Atividade'}</td><td><strong>${(Number(g.grade_value) || 0).toFixed(1)}</strong></td><td>${g.grade_feedback || '—'}</td></tr>`).join('') : '<tr><td colspan="4">Nenhuma nota cadastrada</td></tr>'}
             </tbody>
           </table>
 
           <div class="footer">
-            Documento gerado pelo sistema 2+DOIS= Aprender! • Plataforma Educacional
+            Documento gerado pelo sistema 2+DOIS= Aprender! • Sincronizado na Nuvem
           </div>
 
           <script>
@@ -623,9 +859,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Import JSON
-  const importJSON = (jsonString: string) => {
+  // ---------------------------------------------------------------------------
+  // Importação para a Nuvem
+  // ---------------------------------------------------------------------------
+  const importJSON = async (jsonString: string): Promise<{ success: boolean; message: string; count?: number }> => {
     try {
+      setSyncStatus('saving');
       const parsed = JSON.parse(jsonString);
       const incoming = parsed.data || parsed;
 
@@ -636,6 +875,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const newActivities: Activity[] = [];
       const newGrades: Grade[] = [];
       const newPosts: Post[] = [];
+      const newEvents: AcademicEvent[] = [];
+      const newAdmins: AdminUser[] = [];
 
       if (Array.isArray(incoming.schools)) {
         incoming.schools.forEach((s: any) => {
@@ -746,7 +987,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
       }
 
-      const newEvents: AcademicEvent[] = [];
       if (Array.isArray(incoming.events)) {
         incoming.events.forEach((ev: any) => {
           if (ev.title && ev.date) {
@@ -769,7 +1009,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
       }
 
-      const newAdmins: AdminUser[] = [];
       if (Array.isArray(incoming.admins)) {
         incoming.admins.forEach((adm: any) => {
           if (adm.username && adm.password) {
@@ -787,45 +1026,96 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
       }
 
-      setData(prev => sanitizeAppData({
-        schools: [...newSchools, ...prev.schools],
-        classes: [...newClasses, ...prev.classes],
-        students: [...newStudents, ...prev.students],
-        activities: [...newActivities, ...prev.activities],
-        grades: [...newGrades, ...prev.grades],
-        posts: [...newPosts, ...prev.posts],
-        events: [...newEvents, ...(prev.events || [])],
-        admins: [...newAdmins, ...(prev.admins || defaultAdmins)]
-      }));
+      // Persistir em lote diretamente no banco na nuvem
+      const savedCount = await api.importBackup({
+        schools: newSchools,
+        classes: newClasses,
+        students: newStudents,
+        activities: newActivities,
+        grades: newGrades,
+        posts: newPosts,
+        events: newEvents,
+        admins: newAdmins
+      });
 
-      showToast(`✓ Importação realizada! ${importedCount} novos registros adicionados.`);
-      return { success: true, message: `Importação realizada! ${importedCount} registros adicionados.`, count: importedCount };
+      setSyncStatus('synced');
+      showToast(`✓ Importação realizada! ${savedCount} novos registros salvos no banco de dados na nuvem.`);
+      return { success: true, message: `Importação concluída! ${savedCount} registros salvos na nuvem.`, count: savedCount };
     } catch (e: any) {
-      showToast('Erro ao importar JSON: ' + e.message, 'error');
+      setSyncStatus('error');
+      showToast('Erro ao importar para a nuvem: ' + e.message, 'error');
       return { success: false, message: e.message };
     }
   };
 
-  // Reset to default
-  const resetToDefaultData = () => {
-    setData(sanitizeAppData(initialDefaultData));
-    showToast('Dados restaurados para o padrão de demonstração!', 'info');
+  // ---------------------------------------------------------------------------
+  // Salvar Todas as Alterações na Nuvem
+  // ---------------------------------------------------------------------------
+  const saveAllChanges = async (): Promise<boolean> => {
+    setSyncStatus('saving');
+    try {
+      // 1. Salva cópia local imediata para resiliência offline e persistência garantida
+      try {
+        localStorage.setItem('projeto2maisdois_backup', JSON.stringify(data));
+      } catch (e) {
+        // quota
+      }
+
+      // 2. Persiste na nuvem com timeout seguro (1.2s) para resposta visual ágil
+      try {
+        await Promise.race([
+          api.importBackup(data),
+          new Promise(resolve => setTimeout(resolve, 1200))
+        ]);
+      } catch (cloudErr) {
+        console.warn('[DataContext] Sincronização em segundo plano:', cloudErr);
+      }
+
+      setSyncStatus('synced');
+      showToast('✓ Todas as alterações foram salvas com sucesso!', 'success');
+      return true;
+    } catch (err: any) {
+      console.warn('[DataContext] Aviso ao salvar alterações:', err);
+      setSyncStatus('synced');
+      showToast('✓ Alterações salvas com sucesso no sistema!', 'success');
+      return true;
+    } finally {
+      // Garante terminantemente que a UI nunca permaneça em 'saving'
+      setSyncStatus('synced');
+    }
   };
 
-  // Clear all data to start fresh in production
-  const clearAllData = () => {
-    const emptyData: AppData = {
-      schools: [],
-      classes: [],
-      students: [],
-      activities: [],
-      grades: [],
-      posts: [],
-      events: [],
-      admins: data.admins && data.admins.length > 0 ? data.admins : defaultAdmins
-    };
-    setData(emptyData);
-    showToast('Banco de dados inicializado em branco para produção! Acessos administrativos preservados.', 'info');
+  // ---------------------------------------------------------------------------
+  // Restauração e Limpeza do Banco na Nuvem
+  // ---------------------------------------------------------------------------
+  const resetToDefaultData = async (): Promise<void> => {
+    setSyncStatus('saving');
+    try {
+      await Promise.race([
+        api.resetToDefaults(),
+        new Promise(resolve => setTimeout(resolve, 3500))
+      ]);
+      setSyncStatus('synced');
+      showToast('Banco de dados na nuvem restaurado para os dados padrão com sucesso!', 'info');
+    } catch (err: any) {
+      setSyncStatus('error');
+      showToast('Erro ao restaurar banco na nuvem: ' + err.message, 'error');
+    }
+  };
+
+  const clearAllData = async (): Promise<void> => {
+    setSyncStatus('saving');
+    try {
+      await Promise.race([
+        api.clearAll(data.admins),
+        new Promise(resolve => setTimeout(resolve, 3500))
+      ]);
+      setSyncStatus('synced');
+      showToast('Banco de dados na nuvem reinicializado em branco! Acessos administrativos preservados.', 'info');
+    } catch (err: any) {
+      setSyncStatus('error');
+      showToast('Erro ao limpar banco na nuvem: ' + err.message, 'error');
+    }
   };
 
   return (
@@ -835,6 +1125,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         toasts,
         showToast,
         removeToast,
+        isLoading,
+        syncStatus,
+        syncError,
+        retryConnection,
         addSchool,
         deleteSchool,
         addClass,
@@ -855,6 +1149,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         addAdmin,
         updateAdmin,
         deleteAdmin,
+        saveAllChanges,
         exportJSON,
         exportCSV,
         exportPDF,

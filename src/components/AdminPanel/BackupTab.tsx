@@ -7,16 +7,16 @@ export const BackupTab: React.FC = () => {
   const [dragActive, setDragActive] = useState(false);
   const [importStatus, setImportStatus] = useState<{ success: boolean; message: string } | null>(null);
 
-  const handleFileUpload = (file: File) => {
+  const handleFileUpload = async (file: File) => {
     if (!file.name.endsWith('.json') && file.type !== 'application/json') {
       showToast('Por favor, selecione um arquivo válido no formato .json', 'error');
       return;
     }
 
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       const content = e.target?.result as string;
-      const res = importJSON(content);
+      const res = await importJSON(content);
       setImportStatus(res);
       setTimeout(() => setImportStatus(null), 6000);
     };
@@ -208,9 +208,9 @@ export const BackupTab: React.FC = () => {
         <div className="p-3.5 rounded-xl bg-indigo-50/60 border border-indigo-100/80 flex items-start gap-2.5 text-xs text-indigo-950">
           <Server className="w-4 h-4 text-indigo-600 flex-shrink-0 mt-0.5" />
           <div className="space-y-0.5">
-            <p className="font-semibold text-indigo-900">Motor de Persistência Híbrido Ativo</p>
+            <p className="font-semibold text-indigo-900">Persistência Centralizada em Nuvem Ativa (Google Cloud Firestore)</p>
             <p className="text-zinc-600 text-[11px]">
-              Os dados são mantidos com persistência contínua via <strong>IndexedDB</strong> com fallback assíncrono para <strong>localStorage</strong> e rotinas de sanitização preventiva de chaves. Todos os cadastros, calendários e notas permanecem salvos localmente e podem ser exportados/importados a qualquer momento.
+              Os dados são armazenados centralizadamente no banco de dados na nuvem com sincronização em tempo real multi-dispositivo. Qualquer computador ou navegador que acessar a aplicação visualiza e manipula exatamente a mesma base compartilhada de forma segura e instantânea.
             </p>
           </div>
         </div>

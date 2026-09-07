@@ -1,6 +1,7 @@
 import React from 'react';
-import { User } from 'lucide-react';
+import { User, Cloud, RefreshCw, AlertCircle, Check } from 'lucide-react';
 import { StackedBooksLogo } from './BrandIcons';
+import { useData } from '../context/DataContext';
 
 interface HeaderProps {
   currentRole: 'admin' | 'student' | null;
@@ -9,6 +10,8 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({ currentRole, currentUser, onLogout }) => {
+  const { syncStatus, syncError, retryConnection } = useData();
+
   const subtitle = currentRole === 'admin' 
     ? 'Painel Administrativo' 
     : currentRole === 'student' 
@@ -27,9 +30,42 @@ export const Header: React.FC<HeaderProps> = ({ currentRole, currentUser, onLogo
             <h1 className="font-display text-xl sm:text-2xl font-black tracking-tight text-white leading-tight drop-shadow-xs">
               2+DOIS= Aprender!
             </h1>
-            <p className="text-purple-100/90 text-xs font-medium leading-none mt-0.5">
-              {subtitle}
-            </p>
+            <div className="flex items-center gap-2 mt-0.5">
+              <p className="text-purple-100/90 text-xs font-medium leading-none">
+                {subtitle}
+              </p>
+              <span className="text-purple-300 text-xs">•</span>
+              {/* Cloud Sync Status Indicator */}
+              {syncStatus === 'synced' && (
+                <div className="flex items-center gap-1 text-[11px] font-semibold text-emerald-200 bg-emerald-500/20 px-2 py-0.5 rounded-full border border-emerald-300/30" title="Banco de dados na nuvem conectado e sincronizado em tempo real">
+                  <Check className="w-3 h-3 text-emerald-300" />
+                  <span className="hidden sm:inline">Nuvem Sincronizada</span>
+                  <span className="sm:hidden">Online</span>
+                </div>
+              )}
+              {syncStatus === 'saving' && (
+                <div className="flex items-center gap-1 text-[11px] font-semibold text-amber-200 bg-amber-500/20 px-2 py-0.5 rounded-full border border-amber-300/30" title="Salvando alterações no banco de dados na nuvem...">
+                  <RefreshCw className="w-3 h-3 text-amber-300 animate-spin" />
+                  <span>Salvando...</span>
+                </div>
+              )}
+              {syncStatus === 'loading' && (
+                <div className="flex items-center gap-1 text-[11px] font-medium text-purple-200 bg-white/10 px-2 py-0.5 rounded-full border border-white/20" title="Conectando ao banco de dados na nuvem...">
+                  <Cloud className="w-3 h-3 text-purple-200 animate-pulse" />
+                  <span className="hidden sm:inline">Conectando...</span>
+                </div>
+              )}
+              {syncStatus === 'error' && (
+                <button
+                  onClick={retryConnection}
+                  className="flex items-center gap-1 text-[11px] font-semibold text-rose-100 bg-rose-500/30 hover:bg-rose-500/40 px-2 py-0.5 rounded-full border border-rose-300/40 cursor-pointer transition active:scale-95"
+                  title={syncError || 'Clique para tentar reconectar à nuvem'}
+                >
+                  <AlertCircle className="w-3 h-3 text-rose-200" />
+                  <span>Reconectar</span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -59,4 +95,5 @@ export const Header: React.FC<HeaderProps> = ({ currentRole, currentUser, onLogo
     </header>
   );
 };
+
 

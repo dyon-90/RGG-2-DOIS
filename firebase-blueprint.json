@@ -1,0 +1,170 @@
+{
+  "entities": {
+    "School": {
+      "title": "School",
+      "description": "Instituição escolar cadastrada no sistema educacional",
+      "type": "object",
+      "properties": {
+        "entity_id": { "type": "string" },
+        "school_name": { "type": "string" },
+        "school_city": { "type": "string" },
+        "school_contact": { "type": "string" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["entity_id", "school_name", "school_city", "created_at"]
+    },
+    "ClassRoom": {
+      "title": "ClassRoom",
+      "description": "Turma vinculada a uma escola",
+      "type": "object",
+      "properties": {
+        "entity_id": { "type": "string" },
+        "class_name": { "type": "string" },
+        "class_school_id": { "type": "string" },
+        "class_school_name": { "type": "string" },
+        "class_teacher": { "type": "string" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["entity_id", "class_name", "class_school_id", "class_school_name", "class_teacher", "created_at"]
+    },
+    "Student": {
+      "title": "Student",
+      "description": "Aluno matriculado em uma turma",
+      "type": "object",
+      "properties": {
+        "entity_id": { "type": "string" },
+        "student_name": { "type": "string" },
+        "student_email": { "type": "string" },
+        "student_class_id": { "type": "string" },
+        "student_class_name": { "type": "string" },
+        "student_matricula": { "type": "string" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["entity_id", "student_name", "student_email", "student_class_id", "student_class_name", "student_matricula", "created_at"]
+    },
+    "Activity": {
+      "title": "Activity",
+      "description": "Atividade pedagógica atribuída a uma turma",
+      "type": "object",
+      "properties": {
+        "entity_id": { "type": "string" },
+        "activity_name": { "type": "string" },
+        "activity_class_id": { "type": "string" },
+        "activity_class_name": { "type": "string" },
+        "activity_discipline": { "type": "string" },
+        "activity_due_date": { "type": "string" },
+        "activity_description": { "type": "string" },
+        "activity_link": { "type": "string" },
+        "activity_embed_url": { "type": "string" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["entity_id", "activity_name", "activity_class_id", "activity_class_name", "activity_discipline", "activity_due_date", "created_at"]
+    },
+    "Grade": {
+      "title": "Grade",
+      "description": "Nota ou avaliação atribuída a um aluno",
+      "type": "object",
+      "properties": {
+        "entity_id": { "type": "string" },
+        "grade_student_id": { "type": "string" },
+        "grade_student_name": { "type": "string" },
+        "grade_activity_id": { "type": "string" },
+        "grade_activity_name": { "type": "string" },
+        "grade_value": { "type": "number" },
+        "grade_feedback": { "type": "string" },
+        "grade_date": { "type": "string" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["entity_id", "grade_student_id", "grade_student_name", "grade_activity_id", "grade_activity_name", "grade_value", "grade_date", "created_at"]
+    },
+    "Post": {
+      "title": "Post",
+      "description": "Mensagem ou publicação no mural de avisos da escola/turma",
+      "type": "object",
+      "properties": {
+        "entity_id": { "type": "string" },
+        "post_content": { "type": "string" },
+        "post_author_id": { "type": "string" },
+        "post_author_name": { "type": "string" },
+        "post_author_type": { "type": "string" },
+        "post_class_id": { "type": "string" },
+        "post_is_pinned": { "type": "boolean" },
+        "post_parent_id": { "type": "string" },
+        "post_link": { "type": "string" },
+        "post_image": { "type": "string" },
+        "post_created_at": { "type": "string" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["entity_id", "post_content", "post_author_id", "post_author_name", "post_author_type", "post_is_pinned", "post_created_at", "created_at"]
+    },
+    "AcademicEvent": {
+      "title": "AcademicEvent",
+      "description": "Evento, avaliação ou feriado no calendário acadêmico",
+      "type": "object",
+      "properties": {
+        "entity_id": { "type": "string" },
+        "title": { "type": "string" },
+        "date": { "type": "string" },
+        "end_date": { "type": "string" },
+        "type": { "type": "string" },
+        "description": { "type": "string" },
+        "discipline": { "type": "string" },
+        "class_id": { "type": "string" },
+        "class_name": { "type": "string" },
+        "school_id": { "type": "string" },
+        "location": { "type": "string" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["entity_id", "title", "date", "type", "created_at"]
+    },
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Usuário com permissões administrativas na plataforma",
+      "type": "object",
+      "properties": {
+        "entity_id": { "type": "string" },
+        "username": { "type": "string" },
+        "password": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["entity_id", "username", "password", "name", "created_at"]
+    }
+  },
+  "firestore": {
+    "/schools/{schoolId}": {
+      "schema": "School",
+      "description": "Coleção de escolas cadastradas"
+    },
+    "/classes/{classId}": {
+      "schema": "ClassRoom",
+      "description": "Coleção de turmas escolares"
+    },
+    "/students/{studentId}": {
+      "schema": "Student",
+      "description": "Coleção de alunos matriculados"
+    },
+    "/activities/{activityId}": {
+      "schema": "Activity",
+      "description": "Coleção de atividades escolares"
+    },
+    "/grades/{gradeId}": {
+      "schema": "Grade",
+      "description": "Coleção de notas lançadas"
+    },
+    "/posts/{postId}": {
+      "schema": "Post",
+      "description": "Coleção de avisos e mensagens do mural"
+    },
+    "/events/{eventId}": {
+      "schema": "AcademicEvent",
+      "description": "Coleção de eventos do calendário acadêmico"
+    },
+    "/admins/{adminId}": {
+      "schema": "AdminUser",
+      "description": "Coleção de administradores autorizados"
+    }
+  }
+}

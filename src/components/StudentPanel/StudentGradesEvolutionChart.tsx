@@ -57,19 +57,20 @@ export const StudentGradesEvolutionChart: React.FC<StudentGradesEvolutionChartPr
       const formattedDate = dateObj.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
       
       // Short clean label for x-axis
-      const shortName = grade.grade_activity_name.length > 16 
-        ? grade.grade_activity_name.substring(0, 14) + '…' 
-        : grade.grade_activity_name;
+      const rawName = grade.grade_activity_name || 'Atividade';
+      const shortName = rawName.length > 16 
+        ? rawName.substring(0, 14) + '…' 
+        : rawName;
 
       return {
         id: grade.entity_id,
         order: `Ativ. ${index + 1}`,
         shortName: `${shortName}`,
-        fullName: grade.grade_activity_name,
+        fullName: rawName,
         discipline: act?.activity_discipline || 'Geral',
         date: formattedDate,
         fullDate: dateObj.toLocaleDateString('pt-BR'),
-        nota: Number(grade.grade_value.toFixed(1)),
+        nota: Number((Number(grade.grade_value) || 0).toFixed(1)),
         feedback: grade.grade_feedback,
         meta: 7.0
       };
@@ -206,7 +207,7 @@ export const StudentGradesEvolutionChart: React.FC<StudentGradesEvolutionChartPr
             <p className="text-[11px] font-semibold text-zinc-600 uppercase tracking-wide">Trajetória</p>
             <div className="flex items-baseline gap-1 mt-0.5">
               <span className={`text-2xl font-black ${stats.trendDiff >= 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
-                {stats.trendDiff > 0 ? `+${stats.trendDiff}` : stats.trendDiff.toFixed(1)}
+                {stats.trendDiff > 0 ? `+${stats.trendDiff.toFixed(1)}` : (stats.trendDiff || 0).toFixed(1)}
               </span>
               <span className="text-xs text-zinc-500 font-medium">pts</span>
             </div>

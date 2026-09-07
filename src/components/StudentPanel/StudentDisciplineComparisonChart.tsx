@@ -99,18 +99,18 @@ export const StudentDisciplineComparisonChart: React.FC<StudentDisciplineCompari
       });
 
       const studentAvg = studentGradesInDisc.length > 0
-        ? Number((studentGradesInDisc.reduce((sum, g) => sum + g.grade_value, 0) / studentGradesInDisc.length).toFixed(1))
+        ? Number((studentGradesInDisc.reduce((sum, g) => sum + (Number(g.grade_value) || 0), 0) / studentGradesInDisc.length).toFixed(1))
         : 0;
 
       // 2. Class grades in this discipline
-      const classGradesInDisc = data.grades.filter(g => {
+      const classGradesInDisc = (data.grades || []).filter(g => {
         if (!classStudentIds.has(g.grade_student_id)) return false;
-        const act = data.activities.find(a => a.entity_id === g.grade_activity_id);
+        const act = (data.activities || []).find(a => a.entity_id === g.grade_activity_id);
         return act?.activity_discipline?.trim() === discipline;
       });
 
       const classAvg = classGradesInDisc.length > 0
-        ? Number((classGradesInDisc.reduce((sum, g) => sum + g.grade_value, 0) / classGradesInDisc.length).toFixed(1))
+        ? Number((classGradesInDisc.reduce((sum, g) => sum + (Number(g.grade_value) || 0), 0) / classGradesInDisc.length).toFixed(1))
         : 0;
 
       const diff = Number((studentAvg - classAvg).toFixed(1));

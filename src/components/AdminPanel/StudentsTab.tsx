@@ -63,12 +63,12 @@ export const StudentsTab: React.FC = () => {
       </div>
 
       <div className="p-4 sm:p-6">
-        {data.students.length > 0 ? (
+        {(data.students || []).length > 0 ? (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {data.students.map(student => {
-              const studentGrades = data.grades.filter(g => g.grade_student_id === student.entity_id);
-              const totalPoints = studentGrades.reduce((sum, g) => sum + g.grade_value, 0);
-              const avg = studentGrades.length > 0 ? (totalPoints / studentGrades.length).toFixed(1) : '—';
+            {(data.students || []).map(student => {
+              const studentGrades = (data.grades || []).filter(g => g.grade_student_id === student.entity_id);
+              const totalPoints = studentGrades.reduce((sum, g) => sum + (Number(g.grade_value) || 0), 0);
+              const avg = studentGrades.length > 0 && !isNaN(totalPoints) ? (totalPoints / studentGrades.length).toFixed(1) : '—';
 
               return (
                 <div

@@ -6,15 +6,15 @@ export const DashboardTab: React.FC = () => {
   const { data } = useData();
 
   // 1. Ranking by Schools
-  const schoolsRanking = data.schools.map(school => {
-    const classesInSchool = data.classes.filter(c => c.class_school_id === school.entity_id);
-    const studentsInSchool = data.students.filter(s => classesInSchool.some(c => c.entity_id === s.student_class_id));
-    const gradesForSchool = data.grades.filter(g => studentsInSchool.some(s => s.entity_id === g.grade_student_id));
-    const totalGrade = gradesForSchool.reduce((sum, g) => sum + g.grade_value, 0);
+  const schoolsRanking = (data.schools || []).map(school => {
+    const classesInSchool = (data.classes || []).filter(c => c.class_school_id === school.entity_id);
+    const studentsInSchool = (data.students || []).filter(s => classesInSchool.some(c => c.entity_id === s.student_class_id));
+    const gradesForSchool = (data.grades || []).filter(g => studentsInSchool.some(s => s.entity_id === g.grade_student_id));
+    const totalGrade = gradesForSchool.reduce((sum, g) => sum + (g.grade_value || 0), 0);
     const averageGrade = gradesForSchool.length > 0 ? totalGrade / gradesForSchool.length : 0;
     return {
-      name: school.school_name,
-      city: school.school_city,
+      name: school.school_name || 'Escola',
+      city: school.school_city || '',
       total: totalGrade,
       average: averageGrade,
       count: gradesForSchool.length
@@ -22,14 +22,14 @@ export const DashboardTab: React.FC = () => {
   }).filter(s => s.count > 0).sort((a, b) => b.total - a.total).slice(0, 5);
 
   // 2. Ranking by Classes
-  const classesRanking = data.classes.map(cls => {
-    const studentsInClass = data.students.filter(s => s.student_class_id === cls.entity_id);
-    const gradesForClass = data.grades.filter(g => studentsInClass.some(s => s.entity_id === g.grade_student_id));
-    const totalGrade = gradesForClass.reduce((sum, g) => sum + g.grade_value, 0);
+  const classesRanking = (data.classes || []).map(cls => {
+    const studentsInClass = (data.students || []).filter(s => s.student_class_id === cls.entity_id);
+    const gradesForClass = (data.grades || []).filter(g => studentsInClass.some(s => s.entity_id === g.grade_student_id));
+    const totalGrade = gradesForClass.reduce((sum, g) => sum + (g.grade_value || 0), 0);
     const averageGrade = gradesForClass.length > 0 ? totalGrade / gradesForClass.length : 0;
     return {
-      name: cls.class_name,
-      school: cls.class_school_name,
+      name: cls.class_name || 'Turma',
+      school: cls.class_school_name || '',
       total: totalGrade,
       average: averageGrade,
       count: gradesForClass.length
@@ -38,19 +38,20 @@ export const DashboardTab: React.FC = () => {
 
   // 3. Ranking by Students
   const studentMap = new Map<string, { name: string; schoolClass: string; grades: number[] }>();
-  data.grades.forEach(g => {
-    const student = data.students.find(s => s.entity_id === g.grade_student_id);
-    const className = student ? student.student_class_name : 'Turma';
+  (data.grades || []).forEach(g => {
+    const student = (data.students || []).find(s => s.entity_id === g.grade_student_id);
+    const className = student ? (student.student_class_name || 'Turma') : 'Turma';
+    const studentName = g.grade_student_name || (student ? student.student_name : 'Aluno');
     if (!studentMap.has(g.grade_student_id)) {
-      studentMap.set(g.grade_student_id, { name: g.grade_student_name, schoolClass: className, grades: [g.grade_value] });
+      studentMap.set(g.grade_student_id, { name: studentName, schoolClass: className, grades: [g.grade_value || 0] });
     } else {
-      studentMap.get(g.grade_student_id)!.grades.push(g.grade_value);
+      studentMap.get(g.grade_student_id)!.grades.push(g.grade_value || 0);
     }
   });
 
   const studentsRanking = Array.from(studentMap.values()).map(s => {
     const total = s.grades.reduce((sum, v) => sum + v, 0);
-    const avg = total / s.grades.length;
+    const avg = s.grades.length > 0 ? total / s.grades.length : 0;
     return {
       name: s.name,
       schoolClass: s.schoolClass,
@@ -61,13 +62,13 @@ export const DashboardTab: React.FC = () => {
   }).sort((a, b) => b.total - a.total).slice(0, 5);
 
   // 4. Ranking by Activities
-  const activitiesRanking = data.activities.map(activity => {
-    const gradesForActivity = data.grades.filter(g => g.grade_activity_id === activity.entity_id);
-    const totalGrade = gradesForActivity.reduce((sum, g) => sum + g.grade_value, 0);
+  const activitiesRanking = (data.activities || []).map(activity => {
+    const gradesForActivity = (data.grades || []).filter(g => g.grade_activity_id === activity.entity_id);
+    const totalGrade = gradesForActivity.reduce((sum, g) => sum + (g.grade_value || 0), 0);
     const averageGrade = gradesForActivity.length > 0 ? totalGrade / gradesForActivity.length : 0;
     return {
-      name: activity.activity_name,
-      discipline: activity.activity_discipline,
+      name: activity.activity_name || 'Atividade',
+      discipline: activity.activity_discipline || '',
       total: totalGrade,
       average: averageGrade,
       count: gradesForActivity.length
@@ -75,40 +76,46 @@ export const DashboardTab: React.FC = () => {
   }).filter(a => a.count > 0).sort((a, b) => b.total - a.total).slice(0, 5);
 
   // 5. Ranking Portuguese
-  const portugueseActs = data.activities.filter(a => a.activity_discipline.toLowerCase().includes('portugu'));
+  const portugueseActs = (data.activities || []).filter(a => 
+    Boolean(a && a.activity_discipline && a.activity_discipline.toLowerCase().includes('portugu'))
+  );
   const ptStudentMap = new Map<string, { name: string; grades: number[] }>();
   portugueseActs.forEach(act => {
-    data.grades.filter(g => g.grade_activity_id === act.entity_id).forEach(g => {
+    (data.grades || []).filter(g => g.grade_activity_id === act.entity_id).forEach(g => {
+      const studentName = g.grade_student_name || 'Aluno';
       if (!ptStudentMap.has(g.grade_student_id)) {
-        ptStudentMap.set(g.grade_student_id, { name: g.grade_student_name, grades: [g.grade_value] });
+        ptStudentMap.set(g.grade_student_id, { name: studentName, grades: [g.grade_value || 0] });
       } else {
-        ptStudentMap.get(g.grade_student_id)!.grades.push(g.grade_value);
+        ptStudentMap.get(g.grade_student_id)!.grades.push(g.grade_value || 0);
       }
     });
   });
 
   const portugueseRanking = Array.from(ptStudentMap.values()).map(s => {
     const total = s.grades.reduce((sum, v) => sum + v, 0);
-    const avg = total / s.grades.length;
+    const avg = s.grades.length > 0 ? total / s.grades.length : 0;
     return { name: s.name, total, average: avg, count: s.grades.length };
   }).sort((a, b) => b.total - a.total).slice(0, 5);
 
   // 6. Ranking Mathematics
-  const mathActs = data.activities.filter(a => a.activity_discipline.toLowerCase().includes('matem'));
+  const mathActs = (data.activities || []).filter(a => 
+    Boolean(a && a.activity_discipline && a.activity_discipline.toLowerCase().includes('matem'))
+  );
   const mathStudentMap = new Map<string, { name: string; grades: number[] }>();
   mathActs.forEach(act => {
-    data.grades.filter(g => g.grade_activity_id === act.entity_id).forEach(g => {
+    (data.grades || []).filter(g => g.grade_activity_id === act.entity_id).forEach(g => {
+      const studentName = g.grade_student_name || 'Aluno';
       if (!mathStudentMap.has(g.grade_student_id)) {
-        mathStudentMap.set(g.grade_student_id, { name: g.grade_student_name, grades: [g.grade_value] });
+        mathStudentMap.set(g.grade_student_id, { name: studentName, grades: [g.grade_value || 0] });
       } else {
-        mathStudentMap.get(g.grade_student_id)!.grades.push(g.grade_value);
+        mathStudentMap.get(g.grade_student_id)!.grades.push(g.grade_value || 0);
       }
     });
   });
 
   const mathRanking = Array.from(mathStudentMap.values()).map(s => {
     const total = s.grades.reduce((sum, v) => sum + v, 0);
-    const avg = total / s.grades.length;
+    const avg = s.grades.length > 0 ? total / s.grades.length : 0;
     return { name: s.name, total, average: avg, count: s.grades.length };
   }).sort((a, b) => b.total - a.total).slice(0, 5);
 
@@ -141,8 +148,8 @@ export const DashboardTab: React.FC = () => {
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="font-bold text-sm sm:text-base text-zinc-900">{s.total.toFixed(1)} pts</p>
-                    <p className="text-[11px] text-zinc-500">Média: {s.average.toFixed(1)}</p>
+                    <p className="font-bold text-sm sm:text-base text-zinc-900">{(Number(s.total) || 0).toFixed(1)} pts</p>
+                    <p className="text-[11px] text-zinc-500">Média: {(Number(s.average) || 0).toFixed(1)}</p>
                   </div>
                 </div>
               ))
@@ -177,8 +184,8 @@ export const DashboardTab: React.FC = () => {
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="font-bold text-sm sm:text-base text-zinc-900">{c.total.toFixed(1)} pts</p>
-                    <p className="text-[11px] text-zinc-500">Média: {c.average.toFixed(1)}</p>
+                    <p className="font-bold text-sm sm:text-base text-zinc-900">{(Number(c.total) || 0).toFixed(1)} pts</p>
+                    <p className="text-[11px] text-zinc-500">Média: {(Number(c.average) || 0).toFixed(1)}</p>
                   </div>
                 </div>
               ))
@@ -213,8 +220,8 @@ export const DashboardTab: React.FC = () => {
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="font-bold text-sm sm:text-base text-zinc-900">{st.total.toFixed(1)} pts</p>
-                    <p className="text-[11px] text-zinc-500">Média: {st.average.toFixed(1)}</p>
+                    <p className="font-bold text-sm sm:text-base text-zinc-900">{(Number(st.total) || 0).toFixed(1)} pts</p>
+                    <p className="text-[11px] text-zinc-500">Média: {(Number(st.average) || 0).toFixed(1)}</p>
                   </div>
                 </div>
               ))
@@ -249,8 +256,8 @@ export const DashboardTab: React.FC = () => {
                     </div>
                   </div>
                   <div className="text-right flex-shrink-0 ml-2">
-                    <p className="font-bold text-sm sm:text-base text-zinc-900">{a.total.toFixed(1)} pts</p>
-                    <p className="text-[11px] text-zinc-500">Média: {a.average.toFixed(1)}</p>
+                    <p className="font-bold text-sm sm:text-base text-zinc-900">{(Number(a.total) || 0).toFixed(1)} pts</p>
+                    <p className="text-[11px] text-zinc-500">Média: {(Number(a.average) || 0).toFixed(1)}</p>
                   </div>
                 </div>
               ))
@@ -288,8 +295,8 @@ export const DashboardTab: React.FC = () => {
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="font-bold text-sm sm:text-base text-zinc-900">{s.total.toFixed(1)} pts</p>
-                    <p className="text-[11px] text-zinc-500">Média: {s.average.toFixed(1)}</p>
+                    <p className="font-bold text-sm sm:text-base text-zinc-900">{(Number(s.total) || 0).toFixed(1)} pts</p>
+                    <p className="text-[11px] text-zinc-500">Média: {(Number(s.average) || 0).toFixed(1)}</p>
                   </div>
                 </div>
               ))
@@ -324,8 +331,8 @@ export const DashboardTab: React.FC = () => {
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="font-bold text-sm sm:text-base text-zinc-900">{s.total.toFixed(1)} pts</p>
-                    <p className="text-[11px] text-zinc-500">Média: {s.average.toFixed(1)}</p>
+                    <p className="font-bold text-sm sm:text-base text-zinc-900">{(Number(s.total) || 0).toFixed(1)} pts</p>
+                    <p className="text-[11px] text-zinc-500">Média: {(Number(s.average) || 0).toFixed(1)}</p>
                   </div>
                 </div>
               ))

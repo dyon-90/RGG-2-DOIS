@@ -69,57 +69,66 @@ export const GradesTab: React.FC = () => {
       </div>
 
       <div className="p-4 sm:p-6">
-        {data.grades.length > 0 ? (
+        {(data.grades || []).length > 0 ? (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {data.grades.map(grade => (
-              <div
-                key={grade.entity_id}
-                className="p-4 rounded-xl bg-white border border-zinc-200 hover:border-zinc-300 shadow-xs transition relative flex flex-col justify-between"
-              >
-                <div>
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <div>
-                      <h4 className="font-bold text-sm text-zinc-900 flex items-center gap-1.5">
-                        <User className="w-4 h-4 text-indigo-600" />
-                        <span>{grade.grade_student_name}</span>
-                      </h4>
-                      <p className="text-xs text-zinc-500 mt-0.5 line-clamp-1 flex items-center gap-1">
-                        <CheckSquare className="w-3 h-3 text-zinc-400" />
-                        {grade.grade_activity_name}
-                      </p>
+            {(data.grades || []).map(grade => {
+              const numericValue = typeof grade.grade_value === 'number' && !isNaN(grade.grade_value)
+                ? grade.grade_value
+                : (!isNaN(Number(grade.grade_value)) && grade.grade_value !== null && grade.grade_value !== '' ? Number(grade.grade_value) : 0);
+              const studentName = grade.grade_student_name || 'Aluno';
+              const activityName = grade.grade_activity_name || 'Atividade';
+              const formattedDate = grade.grade_date ? new Date(grade.grade_date).toLocaleDateString('pt-BR') : 'Data não informada';
+
+              return (
+                <div
+                  key={grade.entity_id}
+                  className="p-4 rounded-xl bg-white border border-zinc-200 hover:border-zinc-300 shadow-xs transition relative flex flex-col justify-between"
+                >
+                  <div>
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <div>
+                        <h4 className="font-bold text-sm text-zinc-900 flex items-center gap-1.5">
+                          <User className="w-4 h-4 text-indigo-600" />
+                          <span>{studentName}</span>
+                        </h4>
+                        <p className="text-xs text-zinc-500 mt-0.5 line-clamp-1 flex items-center gap-1">
+                          <CheckSquare className="w-3 h-3 text-zinc-400" />
+                          {activityName}
+                        </p>
+                      </div>
+
+                      <div className="px-3 py-1 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-700 font-extrabold text-base flex items-center justify-center">
+                        {numericValue.toFixed(1)}
+                      </div>
                     </div>
 
-                    <div className="px-3 py-1 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-700 font-extrabold text-base flex items-center justify-center">
-                      {grade.grade_value.toFixed(1)}
-                    </div>
+                    {grade.grade_feedback && (
+                      <div className="mt-2.5 p-2.5 rounded-xl bg-zinc-50 border border-zinc-100 text-xs text-zinc-600 flex items-start gap-1.5">
+                        <MessageSquare className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0 mt-0.5" />
+                        <span className="italic">"{grade.grade_feedback}"</span>
+                      </div>
+                    )}
                   </div>
 
-                  {grade.grade_feedback && (
-                    <div className="mt-2.5 p-2.5 rounded-xl bg-zinc-50 border border-zinc-100 text-xs text-zinc-600 flex items-start gap-1.5">
-                      <MessageSquare className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0 mt-0.5" />
-                      <span className="italic">"{grade.grade_feedback}"</span>
-                    </div>
-                  )}
+                  <div className="pt-3 mt-3 border-t border-zinc-100 flex items-center justify-between text-xs">
+                    <span className="text-zinc-400 text-[11px]">
+                      Lançada em {formattedDate}
+                    </span>
+                    <button
+                      onClick={() => {
+                        if (confirm(`Deseja remover a nota de ${studentName}?`)) {
+                          deleteGrade(grade.entity_id);
+                        }
+                      }}
+                      className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 transition"
+                      title="Remover Nota"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
-
-                <div className="pt-3 mt-3 border-t border-zinc-100 flex items-center justify-between text-xs">
-                  <span className="text-zinc-400 text-[11px]">
-                    Lançada em {new Date(grade.grade_date).toLocaleDateString('pt-BR')}
-                  </span>
-                  <button
-                    onClick={() => {
-                      if (confirm(`Deseja remover a nota de ${grade.grade_student_name}?`)) {
-                        deleteGrade(grade.entity_id);
-                      }
-                    }}
-                    className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 transition"
-                    title="Remover Nota"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <div className="text-center py-12 text-zinc-400">

@@ -53,7 +53,7 @@ export const AdminsTab: React.FC<AdminsTabProps> = ({ currentAdmin }) => {
   const handleNameChange = (val: string) => {
     setNewName(val);
     if (!newUsername) {
-      const parts = val.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().split(/\s+/);
+      const parts = (val || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().split(/\s+/);
       if (parts.length >= 2) {
         setNewUsername(`${parts[0]}.${parts[parts.length - 1]}`);
       } else if (parts.length === 1 && parts[0]) {
@@ -156,10 +156,10 @@ export const AdminsTab: React.FC<AdminsTabProps> = ({ currentAdmin }) => {
       return;
     }
 
-    const isSelf = admin.username.toLowerCase() === currentAdmin.toLowerCase();
+    const isSelf = (admin.username || '').toLowerCase() === (currentAdmin || '').toLowerCase();
     const message = isSelf
-      ? `Atenção: Você está prestes a excluir o seu próprio usuário ("${admin.name}"). Tem certeza que deseja continuar?`
-      : `Deseja realmente remover o administrador "${admin.name}" (@${admin.username})?`;
+      ? `Atenção: Você está prestes a excluir o seu próprio usuário ("${admin.name || admin.username}"). Tem certeza que deseja continuar?`
+      : `Deseja realmente remover o administrador "${admin.name || admin.username}" (@${admin.username})?`;
 
     if (window.confirm(message)) {
       deleteAdmin(admin.entity_id);
@@ -238,8 +238,8 @@ export const AdminsTab: React.FC<AdminsTabProps> = ({ currentAdmin }) => {
 
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {adminList.map((admin) => {
-              const isCurrent = admin.username.toLowerCase() === currentAdmin.toLowerCase();
-              const initials = admin.name
+              const isCurrent = (admin.username || '').toLowerCase() === (currentAdmin || '').toLowerCase();
+              const initials = (admin.name || admin.username || 'AD')
                 .split(' ')
                 .slice(0, 2)
                 .map(n => n[0])
@@ -423,8 +423,11 @@ export const AdminsTab: React.FC<AdminsTabProps> = ({ currentAdmin }) => {
                 </div>
                 <div className="relative">
                   <input
+                    id="new-admin-password"
+                    name="newPassword"
                     type={showPassword ? 'text' : 'password'}
                     required
+                    autoComplete="new-password"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     placeholder="Digite uma senha segura"
@@ -555,8 +558,11 @@ export const AdminsTab: React.FC<AdminsTabProps> = ({ currentAdmin }) => {
                 </label>
                 <div className="relative">
                   <input
+                    id="edit-admin-password"
+                    name="editPassword"
                     type={showEditPassword ? 'text' : 'password'}
                     required
+                    autoComplete="new-password"
                     value={editPassword}
                     onChange={(e) => setEditPassword(e.target.value)}
                     className="w-full pl-3.5 pr-10 py-2.5 rounded-xl border border-zinc-200 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-[#6f2ef7] text-sm text-zinc-900 transition"

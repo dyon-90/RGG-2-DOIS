@@ -23,8 +23,11 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onSuccess, onBack }) => 
     setError(null);
     setIsSubmitting(true);
 
+    const cleanUser = (username || '').trim().toLowerCase();
+    const cleanPassword = (password || '').trim();
+
     const valid = currentAdminList.find(
-      c => c.username.toLowerCase() === username.trim().toLowerCase() && c.password === password
+      c => (c.username || '').toLowerCase() === cleanUser && c.password === cleanPassword
     );
 
     if (valid) {
@@ -57,12 +60,15 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onSuccess, onBack }) => 
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-zinc-700 mb-1.5">
+            <label htmlFor="admin-username" className="block text-xs font-bold uppercase tracking-wider text-zinc-700 mb-1.5">
               Usuário
             </label>
             <input
+              id="admin-username"
+              name="username"
               type="text"
               required
+              autoComplete="username"
               value={username}
               onChange={e => setUsername(e.target.value)}
               placeholder="Digite seu usuário (ex: dyon.gomes)"
@@ -71,12 +77,15 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onSuccess, onBack }) => 
           </div>
 
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-zinc-700 mb-1.5">
+            <label htmlFor="admin-password" className="block text-xs font-bold uppercase tracking-wider text-zinc-700 mb-1.5">
               Senha
             </label>
             <input
+              id="admin-password"
+              name="password"
               type="password"
               required
+              autoComplete="current-password"
               value={password}
               onChange={e => setPassword(e.target.value)}
               placeholder="Digite sua senha"

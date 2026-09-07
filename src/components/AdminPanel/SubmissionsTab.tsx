@@ -7,17 +7,20 @@ export const SubmissionsTab: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterDiscipline, setFilterDiscipline] = useState<string>('all');
 
-  const filteredGrades = data.grades.filter(g => {
-    const matchesSearch = g.grade_student_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          g.grade_activity_name.toLowerCase().includes(searchTerm.toLowerCase());
+  const filteredGrades = (data.grades || []).filter(g => {
+    const studentName = (g.grade_student_name || '').toLowerCase();
+    const activityName = (g.grade_activity_name || '').toLowerCase();
+    const term = (searchTerm || '').trim().toLowerCase();
 
-    const act = data.activities.find(a => a.entity_id === g.grade_activity_id);
+    const matchesSearch = !term || studentName.includes(term) || activityName.includes(term);
+
+    const act = (data.activities || []).find(a => a.entity_id === g.grade_activity_id);
     const matchesDiscipline = filterDiscipline === 'all' || (act && act.activity_discipline === filterDiscipline);
 
     return matchesSearch && matchesDiscipline;
   });
 
-  const disciplines = Array.from(new Set(data.activities.map(a => a.activity_discipline)));
+  const disciplines = Array.from(new Set((data.activities || []).map(a => a.activity_discipline).filter(Boolean)));
 
   return (
     <div className="bg-white rounded-2xl shadow-xs border border-zinc-200 overflow-hidden animate-fade-in">
@@ -96,12 +99,12 @@ export const SubmissionsTab: React.FC = () => {
                       </span>
                     </td>
                     <td className="p-3.5 text-center text-zinc-500">
-                      {new Date(grade.grade_date).toLocaleDateString('pt-BR')}
+                      {grade.grade_date ? new Date(grade.grade_date).toLocaleDateString('pt-BR') : '—'}
                     </td>
                     <td className="p-3.5 text-center">
                       <span className="inline-flex items-center gap-1 font-bold text-sm text-indigo-700 bg-indigo-50/80 px-2.5 py-1 rounded-lg border border-indigo-100">
                         <Award className="w-3.5 h-3.5 text-amber-500" />
-                        {grade.grade_value.toFixed(1)}
+                        {(Number(grade.grade_value) || 0).toFixed(1)}
                       </span>
                     </td>
                     <td className="p-3.5 text-zinc-500 italic max-w-xs truncate">

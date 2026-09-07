@@ -15,7 +15,10 @@ import {
   Pin, 
   ExternalLink,
   Send,
-  Sparkles
+  Sparkles,
+  Save,
+  RefreshCw,
+  Check
 } from 'lucide-react';
 import { ActivityDetailsModal } from '../Modals/ActivityDetailsModal';
 import { AcademicCalendar } from '../Calendar/AcademicCalendar';
@@ -29,9 +32,34 @@ interface StudentDashboardProps {
 type StudentTab = 'activities' | 'rankings' | 'mural' | 'calendar';
 
 export const StudentDashboard: React.FC<StudentDashboardProps> = ({ student }) => {
-  const { data, addPost, showToast } = useData();
+  const { data, addPost, showToast, saveAllChanges, syncStatus } = useData();
   const [activeTab, setActiveTab] = useState<StudentTab>('activities');
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [isRecentlySaved, setIsRecentlySaved] = useState<boolean>(false);
+
+  const handleSaveChanges = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+
+    // Timeout de segurança para nunca travar a interface do aluno
+    const timerGuard = setTimeout(() => {
+      setIsSaving(false);
+      setIsRecentlySaved(true);
+      setTimeout(() => setIsRecentlySaved(false), 2200);
+    }, 1800);
+
+    try {
+      await saveAllChanges();
+    } catch (err) {
+      console.error('Erro ao salvar alterações:', err);
+    } finally {
+      clearTimeout(timerGuard);
+      setIsSaving(false);
+      setIsRecentlySaved(true);
+      setTimeout(() => setIsRecentlySaved(false), 2200);
+    }
+  };
 
   // Student specific data
   const studentActivities = data.activities.filter(a => a.activity_class_id === student.student_class_id);
@@ -39,8 +67,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ student }) =
 
   const completedCount = studentGrades.length;
   const pendingCount = Math.max(0, studentActivities.length - completedCount);
-  const totalScore = studentGrades.reduce((sum, g) => sum + g.grade_value, 0);
-  const gradeAverage = studentGrades.length > 0 ? (totalScore / studentGrades.length).toFixed(1) : '—';
+  const totalScore = studentGrades.reduce((sum, g) => sum + (Number(g.grade_value) || 0), 0);
+  const gradeAverage = studentGrades.length > 0 && !isNaN(totalScore) ? (totalScore / studentGrades.length).toFixed(1) : '—';
 
   // Mural state for students
   const [studentPostContent, setStudentPostContent] = useState('');
@@ -83,10 +111,10 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ student }) =
   };
 
   // Rankings calculation
-  const classStudents = data.students.filter(s => s.student_class_id === student.student_class_id);
+  const classStudents = (data.students || []).filter(s => s.student_class_id === student.student_class_id);
   const classLeaderboard = classStudents.map(st => {
-    const grades = data.grades.filter(g => g.grade_student_id === st.entity_id);
-    const total = grades.reduce((sum, g) => sum + g.grade_value, 0);
+    const grades = (data.grades || []).filter(g => g.grade_student_id === st.entity_id);
+    const total = grades.reduce((sum, g) => sum + (Number(g.grade_value) || 0), 0);
     return {
       id: st.entity_id,
       name: st.student_name,
@@ -97,21 +125,21 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ student }) =
   }).filter(s => s.count > 0).sort((a, b) => b.total - a.total);
 
   const myRank = classLeaderboard.findIndex(s => s.id === student.entity_id) + 1;
-  const myTotal = classLeaderboard.find(s => s.id === student.entity_id)?.total || 0;
+  const myTotal = Number(classLeaderboard.find(s => s.id === student.entity_id)?.total) || 0;
 
   // Portuguese & Math breakdowns
   const ptGrades = studentGrades.filter(g => {
-    const act = data.activities.find(a => a.entity_id === g.grade_activity_id);
-    return act && act.activity_discipline.toLowerCase().includes('portugu');
+    const act = (data.activities || []).find(a => a.entity_id === g.grade_activity_id);
+    return Boolean(act && act.activity_discipline && act.activity_discipline.toLowerCase().includes('portugu'));
   });
-  const ptTotal = ptGrades.reduce((sum, g) => sum + g.grade_value, 0);
+  const ptTotal = ptGrades.reduce((sum, g) => sum + (g.grade_value || 0), 0);
   const ptAvg = ptGrades.length > 0 ? (ptTotal / ptGrades.length).toFixed(1) : '—';
 
   const mathGrades = studentGrades.filter(g => {
-    const act = data.activities.find(a => a.entity_id === g.grade_activity_id);
-    return act && act.activity_discipline.toLowerCase().includes('matem');
+    const act = (data.activities || []).find(a => a.entity_id === g.grade_activity_id);
+    return Boolean(act && act.activity_discipline && act.activity_discipline.toLowerCase().includes('matem'));
   });
-  const mathTotal = mathGrades.reduce((sum, g) => sum + g.grade_value, 0);
+  const mathTotal = mathGrades.reduce((sum, g) => sum + (g.grade_value || 0), 0);
   const mathAvg = mathGrades.length > 0 ? (mathTotal / mathGrades.length).toFixed(1) : '—';
 
   // Best activities
@@ -147,11 +175,39 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ student }) =
             </p>
           </div>
 
-          <div className="flex items-center gap-3 self-start sm:self-auto bg-white/20 backdrop-blur-md px-4 py-2.5 rounded-2xl border border-white/30 shadow-xs">
-            <Trophy className="w-8 h-8 text-amber-300 flex-shrink-0" />
-            <div>
-              <p className="text-[10px] uppercase font-bold tracking-wider text-purple-100">Classificação</p>
-              <p className="text-lg font-black text-white">{myRank ? `#${myRank} na Turma` : 'Sem notas'}</p>
+          <div className="flex flex-wrap items-center gap-3 self-start sm:self-auto">
+            {/* Botão Salvar alterações no Portal do Aluno */}
+            <button
+              id="student-save-changes-button"
+              onClick={handleSaveChanges}
+              disabled={isSaving || syncStatus === 'saving'}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold bg-white text-[#6f2ef7] hover:bg-purple-50 shadow-md shadow-purple-950/20 active:scale-95 transition disabled:opacity-70 cursor-pointer"
+              title="Salvar e sincronizar suas alterações no banco de dados na nuvem"
+            >
+              {isSaving || syncStatus === 'saving' ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-[#6f2ef7]" />
+                  <span>Salvando...</span>
+                </>
+              ) : isRecentlySaved ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                  <span className="text-emerald-700 font-bold">Salvo com sucesso!</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-3.5 h-3.5 text-[#6f2ef7]" />
+                  <span>Salvar alterações</span>
+                </>
+              )}
+            </button>
+
+            <div className="flex items-center gap-3 bg-white/20 backdrop-blur-md px-4 py-2.5 rounded-2xl border border-white/30 shadow-xs">
+              <Trophy className="w-8 h-8 text-amber-300 flex-shrink-0" />
+              <div>
+                <p className="text-[10px] uppercase font-bold tracking-wider text-purple-100">Classificação</p>
+                <p className="text-lg font-black text-white">{myRank ? `#${myRank} na Turma` : 'Sem notas'}</p>
+              </div>
             </div>
           </div>
         </div>
@@ -194,53 +250,80 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ student }) =
       </div>
 
       {/* Tab Navigation */}
-      <div className="flex items-center gap-2 border-b border-zinc-200 pb-3">
-        <button
-          onClick={() => setActiveTab('activities')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition ${
-            activeTab === 'activities'
-              ? 'bg-gradient-to-r from-[#6f2ef7] to-[#5914e6] text-white shadow-md shadow-purple-600/25'
-              : 'bg-white text-zinc-700 hover:bg-purple-50/50 border border-zinc-200'
-          }`}
-        >
-          <BookOpen className="w-4 h-4" />
-          <span>Minhas Atividades & Notas</span>
-        </button>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-200 pb-3">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+          <button
+            onClick={() => setActiveTab('activities')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition ${
+              activeTab === 'activities'
+                ? 'bg-gradient-to-r from-[#6f2ef7] to-[#5914e6] text-white shadow-md shadow-purple-600/25'
+                : 'bg-white text-zinc-700 hover:bg-purple-50/50 border border-zinc-200'
+            }`}
+          >
+            <BookOpen className="w-4 h-4" />
+            <span>Minhas Atividades & Notas</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('rankings')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition ${
+              activeTab === 'rankings'
+                ? 'bg-gradient-to-r from-[#6f2ef7] to-[#5914e6] text-white shadow-md shadow-purple-600/25'
+                : 'bg-white text-zinc-700 hover:bg-purple-50/50 border border-zinc-200'
+            }`}
+          >
+            <Trophy className="w-4 h-4" />
+            <span>Meu Desempenho</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('mural')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition ${
+              activeTab === 'mural'
+                ? 'bg-gradient-to-r from-[#6f2ef7] to-[#5914e6] text-white shadow-md shadow-purple-600/25'
+                : 'bg-white text-zinc-700 hover:bg-purple-50/50 border border-zinc-200'
+            }`}
+          >
+            <Megaphone className="w-4 h-4" />
+            <span>Mural de Avisos</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('calendar')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition ${
+              activeTab === 'calendar'
+                ? 'bg-gradient-to-r from-[#6f2ef7] to-[#5914e6] text-white shadow-md shadow-purple-600/25'
+                : 'bg-white text-zinc-700 hover:bg-purple-50/50 border border-zinc-200'
+            }`}
+          >
+            <CalendarDays className="w-4 h-4" />
+            <span>Calendário Acadêmico</span>
+          </button>
+        </div>
 
         <button
-          onClick={() => setActiveTab('rankings')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition ${
-            activeTab === 'rankings'
-              ? 'bg-gradient-to-r from-[#6f2ef7] to-[#5914e6] text-white shadow-md shadow-purple-600/25'
-              : 'bg-white text-zinc-700 hover:bg-purple-50/50 border border-zinc-200'
-          }`}
+          id="student-save-tab-action"
+          onClick={handleSaveChanges}
+          disabled={isSaving || syncStatus === 'saving'}
+          className="self-end sm:self-auto flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition disabled:opacity-60 cursor-pointer shadow-2xs"
+          title="Salvar alterações na nuvem"
         >
-          <Trophy className="w-4 h-4" />
-          <span>Meu Desempenho</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('mural')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition ${
-            activeTab === 'mural'
-              ? 'bg-gradient-to-r from-[#6f2ef7] to-[#5914e6] text-white shadow-md shadow-purple-600/25'
-              : 'bg-white text-zinc-700 hover:bg-purple-50/50 border border-zinc-200'
-          }`}
-        >
-          <Megaphone className="w-4 h-4" />
-          <span>Mural de Avisos</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('calendar')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition ${
-            activeTab === 'calendar'
-              ? 'bg-gradient-to-r from-[#6f2ef7] to-[#5914e6] text-white shadow-md shadow-purple-600/25'
-              : 'bg-white text-zinc-700 hover:bg-purple-50/50 border border-zinc-200'
-          }`}
-        >
-          <CalendarDays className="w-4 h-4" />
-          <span>Calendário Acadêmico</span>
+          {isSaving || syncStatus === 'saving' ? (
+            <>
+              <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-600" />
+              <span>Salvando...</span>
+            </>
+          ) : isRecentlySaved ? (
+            <>
+              <Check className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Salvo com sucesso!</span>
+            </>
+          ) : (
+            <>
+              <Save className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Salvar alterações</span>
+            </>
+          )}
         </button>
       </div>
 
@@ -311,7 +394,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ student }) =
                         </span>
                         {grade && (
                           <span className="font-black text-emerald-700 text-sm">
-                            Nota: {grade.grade_value.toFixed(1)}
+                            Nota: {(Number(grade.grade_value) || 0).toFixed(1)}
                           </span>
                         )}
                       </div>
@@ -354,7 +437,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ student }) =
                       </div>
 
                       <div className="px-3 py-1 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 font-extrabold text-base">
-                        {grade.grade_value.toFixed(1)}
+                        {(Number(grade.grade_value) || 0).toFixed(1)}
                       </div>
                     </div>
 
@@ -404,7 +487,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ student }) =
                   <p className="text-xs text-zinc-400 mt-0.5">de {classLeaderboard.length} aluno(s) avaliado(s)</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-2xl font-black text-indigo-400">{myTotal.toFixed(1)} pts</p>
+                  <p className="text-2xl font-black text-indigo-400">{(Number(myTotal) || 0).toFixed(1)} pts</p>
                   <p className="text-xs text-zinc-400">Total acumulado</p>
                 </div>
               </div>
@@ -430,7 +513,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ student }) =
                       </span>
                       <span>{item.name} {isMe && '(Você)'}</span>
                     </div>
-                    <span className="font-extrabold text-indigo-700">{item.total.toFixed(1)} pts</span>
+                    <span className="font-extrabold text-indigo-700">{(Number(item.total) || 0).toFixed(1)} pts</span>
                   </div>
                 );
               })}
@@ -453,7 +536,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ student }) =
                     <p className="text-xs text-zinc-500">{ptGrades.length} atividade(s) avaliada(s)</p>
                   </div>
                   <div className="text-right">
-                    <p className="font-bold text-base text-indigo-600">{ptTotal.toFixed(1)} pts</p>
+                    <p className="font-bold text-base text-indigo-600">{(Number(ptTotal) || 0).toFixed(1)} pts</p>
                     <p className="text-[11px] text-zinc-500">Média: {ptAvg}</p>
                   </div>
                 </div>
@@ -465,7 +548,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ student }) =
                     <p className="text-xs text-zinc-500">{mathGrades.length} atividade(s) avaliada(s)</p>
                   </div>
                   <div className="text-right">
-                    <p className="font-bold text-base text-indigo-600">{mathTotal.toFixed(1)} pts</p>
+                    <p className="font-bold text-base text-indigo-600">{(Number(mathTotal) || 0).toFixed(1)} pts</p>
                     <p className="text-[11px] text-zinc-500">Média: {mathAvg}</p>
                   </div>
                 </div>
@@ -488,7 +571,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ student }) =
                         <p className="text-[11px] text-zinc-400">{new Date(grade.grade_date).toLocaleDateString('pt-BR')}</p>
                       </div>
                       <span className="font-black text-indigo-700 bg-indigo-50 border border-indigo-100 px-2.5 py-1 rounded-lg">
-                        {grade.grade_value.toFixed(1)}
+                        {(Number(grade.grade_value) || 0).toFixed(1)}
                       </span>
                     </div>
                   ))

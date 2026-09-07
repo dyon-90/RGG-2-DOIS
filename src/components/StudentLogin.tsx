@@ -21,9 +21,12 @@ export const StudentLogin: React.FC<StudentLoginProps> = ({ onSuccess, onBack })
     setError(null);
     setIsSubmitting(true);
 
-    const found = data.students.find(
-      s => (s.student_email.toLowerCase() === login.trim().toLowerCase() || s.student_name.toLowerCase() === login.trim().toLowerCase()) &&
-           s.student_matricula === password.trim()
+    const cleanLogin = (login || '').trim().toLowerCase();
+    const cleanPassword = (password || '').trim();
+
+    const found = (data.students || []).find(
+      s => ((s.student_email || '').toLowerCase() === cleanLogin || (s.student_name || '').toLowerCase() === cleanLogin) &&
+           String(s.student_matricula || '').trim() === cleanPassword
     );
 
     if (found) {
@@ -56,12 +59,15 @@ export const StudentLogin: React.FC<StudentLoginProps> = ({ onSuccess, onBack })
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-zinc-700 mb-1.5">
+            <label htmlFor="student-username" className="block text-xs font-bold uppercase tracking-wider text-zinc-700 mb-1.5">
               Login do Aluno
             </label>
             <input
+              id="student-username"
+              name="username"
               type="text"
               required
+              autoComplete="username"
               value={login}
               onChange={e => setLogin(e.target.value)}
               placeholder="Ex: maria.silva"
@@ -70,12 +76,15 @@ export const StudentLogin: React.FC<StudentLoginProps> = ({ onSuccess, onBack })
           </div>
 
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-zinc-700 mb-1.5">
+            <label htmlFor="student-password" className="block text-xs font-bold uppercase tracking-wider text-zinc-700 mb-1.5">
               Senha (Matrícula)
             </label>
             <input
+              id="student-password"
+              name="password"
               type="password"
               required
+              autoComplete="current-password"
               value={password}
               onChange={e => setPassword(e.target.value)}
               placeholder="Ex: 123456"
